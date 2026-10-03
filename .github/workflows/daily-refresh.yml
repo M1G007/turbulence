@@ -1,0 +1,139 @@
+name: Daily turbulence refresh
+
+# Runs the same pipeline the Perplexity Computer task used to run, for free.
+#  - Dormant until the model source exists in src/.
+#  - Repo variable LIVE=true  -> commits the rebuilt site and sends alerts.
+#    Otherwise (shadow mode) it only builds and reports, without touching the site.
+#  - Repo variable ALERT_MODE=elevated (default) or daily.
+
+on:
+  schedule:
+    - cron: "45 23 * * 1-5"   # 4:45 PM Arizona, Mon-Fri
+  push:
+    branches: [main]
+    paths: ["src/**", ".github/workflows/daily-refresh.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: turbulence-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      LIVE: ${{ vars.LIVE || 'false' }}
+      ALERT_MODE: ${{ vars.ALERT_MODE || 'elevated' }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for model source
+        id: src
+        run: |
+          if [ -f src/turbulence-app/server.py ]; then echo "ready=true" >> "$GITHUB_OUTPUT";
+          else echo "ready=false" >> "$GITHUB_OUTPUT"; echo "::notice::src/turbulence-app/server.py not found yet - skipping."; fi
+
+      - uses: actions/setup-python@v5
+        if: steps.src.outputs.ready == 'true'
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        if: steps.src.outputs.ready == 'true'
+        run: |
+          pip install -q fastapi uvicorn yfinance pandas numpy scipy
+          for r in src/turbulence-app/requirements*.txt; do [ -f "$r" ] && pip install -q -r "$r"; done; true
+
+      # server.py / build-static.py were written for /home/user/workspace/...,
+      # so recreate that layout.
+      - name: Recreate original workspace layout
+        if: steps.src.outputs.ready == 'true'
+        run: |
+          sudo mkdir -p /home/user/workspace && sudo chown -R "$USER" /home/user
+          cp -r "$GITHUB_WORKSPACE/src/turbulence-app" /home/user/workspace/turbulence-app
+          mkdir -p /home/user/workspace/turbulence-static/data
+          for f in "$GITHUB_WORKSPACE"/src/*; do
+            n=$(basename "$f")
+            case "$n" in turbulence-app|PATHS.md) ;;
+              build-static.py) cp "$f" /home/user/workspace/build-static.py ;;
+              *) cp -r "$f" /home/user/workspace/turbulence-static/ ;;
+            esac
+          done
+          cp "$GITHUB_WORKSPACE/index.html" /home/user/workspace/turbulence-static/index.html
+          cp "$GITHUB_WORKSPACE/index.html" /tmp/live-index.html
+
+      - name: Start model server and wait for health
+        if: steps.src.outputs.ready == 'true'
+        working-directory: /home/user/workspace/turbulence-app
+        run: |
+          nohup python server.py > /tmp/server.log 2>&1 &
+          for i in $(seq 1 90); do
+            if curl -sf http://localhost:8000/api/health | grep -q '"ok"'; then echo "ready after $((i*10))s"; exit 0; fi
+            sleep 10
+          done
+          echo "Server never became healthy"; tail -100 /tmp/server.log; exit 1
+
+      - name: Export data
+        if: steps.src.outputs.ready == 'true'
+        run: |
+          D=/home/user/workspace/turbulence-static/data
+          for ep in current turbulence assets heatmap events spx_overlay; do
+            curl -sf "http://localhost:8000/api/$ep" > "$D/$ep.json"
+          done
+
+      - name: Build static dashboard
+        if: steps.src.outputs.ready == 'true'
+        run: |
+          S=/home/user/workspace/turbulence-static
+          if [ -f /home/user/workspace/build-static.py ] && python3 /home/user/workspace/build-static.py; then
+            echo "Built with build-static.py"
+          else
+            echo "::warning::build-static.py missing or failed - using scripts/embed.py"
+            cp /tmp/live-index.html "$S/index.html"
+            python3 scripts/embed.py "$S/index.html" "$S/data"
+          fi
+          grep -q "const EMBEDDED_CURRENT" "$S/index.html"
+          python3 scripts/compare.py /tmp/live-index.html "$S/data/current.json" | tee /tmp/compare.md
+          echo "## Live site vs this run" >> "$GITHUB_STEP_SUMMARY"; cat /tmp/compare.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report shadow-mode result
+        if: steps.src.outputs.ready == 'true' && env.LIVE != 'true' && github.event_name != 'schedule'
+        run: |
+          gh label create turbulence-alert --color d29922 --force >/dev/null 2>&1 || true
+          { echo "@M1G007 GitHub ran the turbulence model (shadow mode, live site untouched)."; echo;
+            cat /tmp/compare.md; echo;
+            echo "If the numbers match, pause the Perplexity task and set the repo variable LIVE=true:";
+            echo "https://github.com/M1G007/turbulence/settings/variables/actions"; } > /tmp/body.md
+          gh issue create --title "Turbulence: GitHub validation run $(date -u +%Y-%m-%d)" --body-file /tmp/body.md --label turbulence-alert
+
+      - name: Commit to live site
+        if: steps.src.outputs.ready == 'true' && env.LIVE == 'true'
+        run: |
+          cp /home/user/workspace/turbulence-static/index.html index.html
+          git config user.name "M1G007"
+          git config user.email "mgusich@hotmail.com"
+          git add index.html
+          git diff --cached --quiet && { echo "No changes"; exit 0; }
+          git commit -m "Daily update: $(date -u +%Y-%m-%d)"
+          git pull --rebase origin main && git push origin HEAD:main
+
+      - name: Alert
+        if: steps.src.outputs.ready == 'true' && env.LIVE == 'true'
+        run: python3 scripts/alert.py /home/user/workspace/turbulence-static/data/current.json
+
+      - name: Save build files
+        if: always() && steps.src.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: turbulence-build
+          path: |
+            /home/user/workspace/turbulence-static/data/*.json
+            /home/user/workspace/turbulence-static/index.html
+            /tmp/server.log
+          if-no-files-found: ignore
