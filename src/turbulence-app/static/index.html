@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Market Turbulence Analysis</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+  <style>
+    /* ========== RESET & BASE ========== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    :root {
+      --bg: #ffffff;
+      --fg: #111111;
+      --fg-muted: #555555;
+      --border: #cccccc;
+      --panel-bg: #f9f9f9;
+      --warning-bg: #fff8dc;
+      --warning-border: #daa520;
+      --critical-bg: #ffe0e0;
+      --critical-border: #cc0000;
+      --normal-bg: #e8f5e9;
+      --normal-border: #388e3c;
+      --elevated-bg: #fff3e0;
+      --elevated-border: #e65100;
+      --divergence-green: rgba(0, 180, 80, 0.15);
+      --link-color: #1a5276;
+      --accent: #1a5276;
+    }
+
+    body {
+      font-family: 'Courier New', Courier, monospace;
+      background: var(--bg);
+      color: var(--fg);
+      line-height: 1.5;
+      padding: 0;
+      margin: 0;
+      font-size: 13px;
+    }
+
+    /* ========== LAYOUT ========== */
+    .page {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 24px 32px 48px;
+    }
+
+    .page-title {
+      font-size: 16px;
+      font-weight: bold;
+      color: var(--accent);
+      margin-bottom: 20px;
+      text-decoration: underline;
+    }
+
+    /* ========== STATUS PANEL ========== */
+    .status-panel {
+      border: 2px solid var(--border);
+      padding: 20px 24px;
+      margin-bottom: 20px;
+      background: var(--bg);
+    }
+
+    .status-header {
+      font-size: 14px;
+      font-weight: bold;
+      margin-bottom: 16px;
+      text-align: left;
+    }
+
+    .warning-level {
+      font-size: 15px;
+      font-weight: bold;
+      margin-bottom: 14px;
+    }
+
+    .warning-level .label { }
+    .warning-level .value { margin-left: 4px; }
+
+    .warning-level.normal .value { color: #388e3c; }
+    .warning-level.elevated .value { color: #e65100; }
+    .warning-level.critical .value { color: #cc0000; }
+
+    .metrics-section {
+      margin-bottom: 14px;
+    }
+
+    .metrics-section .section-label {
+      font-weight: bold;
+      margin-bottom: 4px;
+    }
+
+    .metrics-list {
+      list-style: none;
+      padding-left: 16px;
+    }
+
+    .metrics-list li {
+      margin-bottom: 2px;
+    }
+
+    .metrics-list li::before {
+      content: "• ";
+    }
+
+    .above-ma { color: #388e3c; font-weight: bold; }
+    .below-ma { color: #cc0000; font-weight: bold; }
+
+    /* ========== INTERPRETATION ========== */
+    .interpretation-section {
+      margin-bottom: 20px;
+    }
+
+    .interpretation-header {
+      font-weight: bold;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    .interpretation-list {
+      list-style: none;
+      padding-left: 16px;
+    }
+
+    .interpretation-list li {
+      margin-bottom: 3px;
+    }
+
+    .interpretation-list li::before {
+      content: "⚡ ";
+    }
+
+    /* ========== RECOMMENDED ACTIONS ========== */
+    .actions-section {
+      margin-bottom: 20px;
+    }
+
+    .actions-box {
+      padding: 12px 16px;
+      border: 2px solid var(--warning-border);
+      background: var(--warning-bg);
+    }
+
+    .actions-box.critical {
+      border-color: var(--critical-border);
+      background: var(--critical-bg);
+    }
+
+    .actions-box.normal {
+      border-color: var(--normal-border);
+      background: var(--normal-bg);
+    }
+
+    .actions-header {
+      font-weight: bold;
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
+
+    .actions-list {
+      list-style: none;
+      padding-left: 8px;
+    }
+
+    .actions-list li {
+      margin-bottom: 2px;
+    }
+
+    .actions-list li::before {
+      content: "– ";
+    }
+
+    /* ========== AI SECTOR CONTEXT ========== */
+    .ai-section {
+      margin-bottom: 24px;
+    }
+
+    .ai-header {
+      font-weight: bold;
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+
+    .ai-metrics {
+      padding-left: 16px;
+      list-style: none;
+    }
+
+    .ai-metrics li::before {
+      content: "• ";
+    }
+
+    /* ========== CHART SECTION ========== */
+    .chart-section {
+      margin-bottom: 32px;
+    }
+
+    .chart-title {
+      font-size: 14px;
+      font-weight: bold;
+      text-align: center;
+      margin-bottom: 4px;
+    }
+
+    .chart-subtitle {
+      font-size: 12px;
+      text-align: center;
+      color: var(--fg-muted);
+      margin-bottom: 12px;
+    }
+
+    .chart-container {
+      width: 100%;
+      height: 380px;
+      position: relative;
+    }
+
+    .chart-container canvas {
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    /* ========== LOADING ========== */
+    .loading-overlay {
+      position: fixed;
+      inset: 0;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      transition: opacity 0.3s;
+    }
+
+    .loading-overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .spinner {
+      width: 32px; height: 32px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 12px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .loading-text {
+      font-size: 13px;
+      color: var(--fg-muted);
+    }
+
+    /* ========== FOOTER ========== */
+    .footer {
+      margin-top: 32px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--fg-muted);
+      text-align: center;
+    }
+
+    /* ========== RESPONSIVE ========== */
+    @media (max-width: 640px) {
+      .page { padding: 16px; }
+      body { font-size: 12px; }
+      .chart-container { height: 280px; }
+      .status-panel { padding: 14px 16px; }
+    }
+
+    /* ========== TURBULENCE HISTORY CHART ========== */
+    .chart-section + .chart-section { margin-top: 8px; }
+
+    .legend-row {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+      font-size: 11px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .legend-swatch {
+      width: 20px;
+      height: 3px;
+      display: inline-block;
+    }
+    .legend-swatch.dashed {
+      border-top: 2px dashed;
+      height: 0;
+      width: 20px;
+    }
+  </style>
+</head>
+<body>
+
+<div id="loading-overlay" class="loading-overlay">
+  <div class="spinner"></div>
+  <div class="loading-text">Calculating turbulence model...</div>
+</div>
+
+<div class="page" id="app" style="visibility: hidden;">
+
+  <!-- Title -->
+  <div class="page-title">📊 Market Turbulence Analysis</div>
+
+  <!-- ========== STATUS PANEL ========== -->
+  <div class="status-panel" id="status-panel">
+    <div class="status-header" id="status-header">🛡️ CURRENT IMMUNE SYSTEM STATUS – <span id="status-date"></span></div>
+    
+    <div class="warning-level" id="warning-level-row">
+      WARNING LEVEL: <span class="value" id="warning-level-value"></span>
+    </div>
+
+    <div class="metrics-section">
+      <div class="section-label">📊 Current Metrics:</div>
+      <ul class="metrics-list" id="current-metrics"></ul>
+    </div>
+
+    <div class="interpretation-section">
+      <div class="interpretation-header">📖 Interpretation:</div>
+      <ul class="interpretation-list" id="interpretation-list"></ul>
+    </div>
+  </div>
+
+  <!-- ========== RECOMMENDED ACTIONS ========== -->
+  <div class="actions-section" id="actions-section">
+    <div class="actions-box" id="actions-box">
+      <div class="actions-header" id="actions-header"></div>
+      <ul class="actions-list" id="actions-list"></ul>
+    </div>
+  </div>
+
+  <!-- ========== AI SECTOR CONTEXT ========== -->
+  <div class="ai-section" id="ai-section">
+    <div class="ai-header">🤖 AI SECTOR CONTEXT:</div>
+    <ul class="ai-metrics" id="ai-metrics"></ul>
+  </div>
+
+  <!-- ========== DIVERGENCE DETECTOR CHART ========== -->
+  <div class="chart-section">
+    <div class="chart-title">⚠️ DIVERGENCE DETECTOR: Turbulence vs SPX (ENLARGED)</div>
+    <div class="chart-subtitle">(Green shading = High turbulence while SPX rising – YOUR WARNING SIGNAL)</div>
+    <div class="legend-row">
+      <div class="legend-item"><span class="legend-swatch" style="background:#cc0000;"></span> Market Turbulence</div>
+      <div class="legend-item"><span class="legend-swatch dashed" style="border-color:#e65100;"></span> Warning Threshold (95th)</div>
+      <div class="legend-item"><span class="legend-swatch dashed" style="border-color:#888;"></span> Extreme Threshold (99th)</div>
+    </div>
+    <div class="chart-container">
+      <canvas id="divergence-chart"></canvas>
+    </div>
+  </div>
+
+  <!-- ========== TURBULENCE HISTORY CHART ========== -->
+  <div class="chart-section">
+    <div class="chart-title">📈 Rolling & EWMA Turbulence History</div>
+    <div class="chart-subtitle">252-day rolling window (black) and EWMA halflife=60 (blue)</div>
+    <div class="chart-container">
+      <canvas id="turbulence-chart"></canvas>
+    </div>
+  </div>
+
+  <!-- ========== FOOTER ========== -->
+  <div class="footer">
+    Market Turbulence Model — Mahalanobis Distance (~98 assets) — Updated daily at market close<br>
+    Methodology: Visser-style cross-asset covariance-based turbulence index
+  </div>
+
+</div>
+
+<script>
+// ========== CONFIG ==========
+const API_BASE = '';
+
+// ========== GLOBALS ==========
+let currentData = null;
+let turbulenceData = null;
+let assetsData = null;
+let heatmapData = null;
+let eventsData = null;
+let spxOverlayData = null;
+
+// ========== DATA LOADING ==========
+async function fetchJSON(endpoint) {
+  const resp = await fetch(API_BASE + endpoint);
+  return resp.json();
+}
+
+async function loadCurrent() {
+  const data = await fetchJSON('/api/current');
+  if (data.error) return null;
+  return data;
+}
+
+// ========== INIT ==========
+async function init() {
+  const overlay = document.getElementById('loading-overlay');
+
+  async function tryLoad() {
+    currentData = await loadCurrent();
+    if (!currentData) {
+      setTimeout(tryLoad, 5000);
+      return;
+    }
+
+    const [turb, assets, heatmap, events, spxOverlay] = await Promise.all([
+      fetchJSON('/api/turbulence'),
+      fetchJSON('/api/assets'),
+      fetchJSON('/api/heatmap'),
+      fetchJSON('/api/events'),
+      fetchJSON('/api/spx_overlay')
+    ]);
+
+    turbulenceData = turb;
+    assetsData = assets;
+    heatmapData = heatmap;
+    eventsData = events;
+    spxOverlayData = Array.isArray(spxOverlay) ? spxOverlay : [];
+
+    renderAll();
+    document.getElementById('app').style.visibility = 'visible';
+    overlay.classList.add('hidden');
+  }
+
+  tryLoad();
+}
+
+// ========== RENDER ALL ==========
+function renderAll() {
+  renderStatusPanel();
+  renderInterpretation();
+  renderActions();
+  renderAIContext();
+  renderDivergenceChart();
+  renderTurbulenceHistory();
+}
+
+// ========== STATUS PANEL ==========
+function renderStatusPanel() {
+  const d = currentData;
+  document.getElementById('status-date').textContent = d.as_of_date;
+
+  const wlRow = document.getElementById('warning-level-row');
+  const wlVal = document.getElementById('warning-level-value');
+  
+  const level = d.warning_level || 'NORMAL';
+  let levelClass = 'normal';
+  let levelEmoji = '🟢';
+  if (level.includes('HIGH') || level.includes('CRITICAL')) { levelClass = 'critical'; levelEmoji = '🔴'; }
+  else if (level.includes('ELEVATED')) { levelClass = 'elevated'; levelEmoji = '🟡'; }
+  
+  wlRow.className = 'warning-level ' + levelClass;
+  wlVal.textContent = levelEmoji + ' ' + level;
+
+  // Current metrics
+  const ul = document.getElementById('current-metrics');
+  const spxLabel = d.spx_above_50ma === true ? '(ABOVE 50-day MA)' : d.spx_above_50ma === false ? '(BELOW 50-day MA)' : '';
+  const spxClass = d.spx_above_50ma === true ? 'above-ma' : d.spx_above_50ma === false ? 'below-ma' : '';
+  
+  const metrics = [
+    `Market Turbulence: ${d.rolling_value}`,
+    `Days Elevated: ${d.days_elevated}`,
+    `SPX Level: ${d.spx_level != null ? d.spx_level.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'} ${spxLabel ? '<span class="' + spxClass + '">' + spxLabel + '</span>' : ''}`,
+    `VIX Level: ${d.vix_level != null ? d.vix_level.toFixed(2) : 'N/A'}`,
+    `Divergence Active: ${d.divergence_active ? 'YES ⚡' : 'NO'}`,
+  ];
+  
+  ul.innerHTML = metrics.map(m => `<li>${m}</li>`).join('');
+}
+
+// ========== INTERPRETATION ==========
+function renderInterpretation() {
+  const d = currentData;
+  const ul = document.getElementById('interpretation-list');
+  const lines = [];
+
+  if (d.warning_level === 'HIGH RISK') {
+    lines.push('EXTREME STRESS DETECTED');
+  } else if (d.warning_level === 'ELEVATED RISK') {
+    lines.push(`PERSISTENT STRESS DETECTED (${d.days_elevated} days elevated)`);
+  } else {
+    lines.push('Markets operating within normal turbulence range');
+  }
+
+  if (d.divergence_active) {
+    lines.push('Turbulence high while market appears calm (DIVERGENCE)');
+    lines.push('This is your "immune system" catching threat before obvious symptoms');
+  } else if (d.warning_level !== 'NORMAL') {
+    lines.push('Elevated turbulence — monitor closely');
+  } else {
+    lines.push('No divergence detected between turbulence and market direction');
+  }
+
+  ul.innerHTML = lines.map(l => `<li>${l}</li>`).join('');
+}
+
+// ========== RECOMMENDED ACTIONS ==========
+function renderActions() {
+  const d = currentData;
+  const box = document.getElementById('actions-box');
+  const header = document.getElementById('actions-header');
+  const list = document.getElementById('actions-list');
+
+  if (d.warning_level === 'HIGH RISK') {
+    box.className = 'actions-box critical';
+    header.textContent = '‼️ RECOMMENDED ACTIONS (TAKE ACTION NOW):';
+  } else if (d.warning_level === 'ELEVATED RISK') {
+    box.className = 'actions-box';
+    header.textContent = '⚠️ RECOMMENDED ACTIONS (TAKE ACTION NOW):';
+  } else {
+    box.className = 'actions-box normal';
+    header.textContent = '✅ STATUS: ALL CLEAR';
+  }
+
+  list.innerHTML = (d.actions || []).map(a => `<li>${a}</li>`).join('');
+}
+
+// ========== AI SECTOR CONTEXT ==========
+function renderAIContext() {
+  const d = currentData;
+  const ul = document.getElementById('ai-metrics');
+  ul.innerHTML = [
+    `AI Turbulence: ${d.ai_turbulence}`,
+    `Market Turbulence: ${d.market_turbulence}`,
+    `Ratio: ${d.ai_ratio}x`
+  ].map(m => `<li>${m}</li>`).join('');
+}
+
+// ========== DIVERGENCE DETECTOR CHART ==========
+function renderDivergenceChart() {
+  const canvas = document.getElementById('divergence-chart');
+  const ctx = canvas.getContext('2d');
+
+  // Use spxOverlayData if available, else build from turbulenceData
+  let chartData = spxOverlayData && spxOverlayData.length > 0 ? spxOverlayData : [];
+  
+  // If no overlay data, build it from turbulence + approximate SPX
+  if (chartData.length === 0 && turbulenceData && turbulenceData.length > 0) {
+    chartData = turbulenceData.map(t => ({
+      date: t.date,
+      turbulence: t.rolling_turbulence,
+      spx: null,
+      spx_50ma: null,
+      divergence: false
+    }));
+  }
+
+  // Filter to last 2 years for readability (matching Visser's chart range)
+  const twoYearsAgo = new Date();
+  twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2.5);
+  const filtered = chartData.filter(d => new Date(d.date) >= twoYearsAgo && d.turbulence != null);
+
+  const labels = filtered.map(d => d.date);
+  const turbValues = filtered.map(d => d.turbulence);
+  const spxValues = filtered.map(d => d.spx);
+  const spx50maValues = filtered.map(d => d.spx_50ma);
+  const divergenceFlags = filtered.map(d => d.divergence);
+
+  // Compute p95 and p99 thresholds from turbulence values
+  const sortedTurb = turbValues.filter(v => v != null).sort((a, b) => a - b);
+  const p95 = sortedTurb[Math.floor(sortedTurb.length * 0.95)] || 300;
+  const p99 = sortedTurb[Math.floor(sortedTurb.length * 0.99)] || 500;
+
+  // Green background segments for divergence
+  const divSegments = [];
+  let inDiv = false;
+  let segStart = 0;
+  for (let i = 0; i < divergenceFlags.length; i++) {
+    if (divergenceFlags[i] && !inDiv) { segStart = i; inDiv = true; }
+    if (!divergenceFlags[i] && inDiv) { divSegments.push([segStart, i - 1]); inDiv = false; }
+  }
+  if (inDiv) divSegments.push([segStart, divergenceFlags.length - 1]);
+
+  // Build annotation boxes for divergence shading
+  const annotations = {};
+  divSegments.forEach((seg, idx) => {
+    annotations['div' + idx] = {
+      type: 'box',
+      xMin: seg[0],
+      xMax: seg[1],
+      backgroundColor: 'rgba(0, 180, 80, 0.12)',
+      borderWidth: 0,
+      drawTime: 'beforeDatasetsDraw'
+    };
+  });
+
+  // Add threshold lines
+  annotations['p95line'] = {
+    type: 'line',
+    yMin: p95, yMax: p95,
+    borderColor: '#e65100',
+    borderWidth: 1.5,
+    borderDash: [6, 4],
+    drawTime: 'beforeDatasetsDraw',
+    yScaleID: 'y'
+  };
+  annotations['p99line'] = {
+    type: 'line',
+    yMin: p99, yMax: p99,
+    borderColor: '#888888',
+    borderWidth: 1.5,
+    borderDash: [6, 4],
+    drawTime: 'beforeDatasetsDraw',
+    yScaleID: 'y'
+  };
+
+  // Datasets
+  const datasets = [
+    {
+      label: 'Market Turbulence',
+      data: turbValues,
+      borderColor: '#cc0000',
+      backgroundColor: 'rgba(204, 0, 0, 0.05)',
+      borderWidth: 1.2,
+      pointRadius: 0,
+      fill: false,
+      yAxisID: 'y',
+      order: 2,
+    }
+  ];
+
+  // Only add SPX if we have data
+  const hasSpx = spxValues.some(v => v != null);
+  if (hasSpx) {
+    datasets.push({
+      label: 'SPX',
+      data: spxValues,
+      borderColor: '#111111',
+      borderWidth: 1.2,
+      pointRadius: 0,
+      fill: false,
+      yAxisID: 'y1',
+      order: 3,
+    });
+    datasets.push({
+      label: 'SPX 50-MA',
+      data: spx50maValues,
+      borderColor: '#888888',
+      borderWidth: 1,
+      borderDash: [4, 3],
+      pointRadius: 0,
+      fill: false,
+      yAxisID: 'y1',
+      order: 4,
+    });
+  }
+
+  // Max turbulence for scale
+  const maxTurb = Math.max(...turbValues.filter(v => v != null), 600);
+  const turbMax = Math.ceil(maxTurb / 100) * 100;
+
+  // SPX scale
+  const spxClean = spxValues.filter(v => v != null);
+  const spxMin = spxClean.length > 0 ? Math.floor(Math.min(...spxClean) / 500) * 500 : 3000;
+  const spxMax = spxClean.length > 0 ? Math.ceil(Math.max(...spxClean) / 500) * 500 : 7000;
+
+  new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        annotation: { annotations },
+        tooltip: {
+          callbacks: {
+            title: (items) => items[0]?.label || '',
+            label: (item) => {
+              const v = item.parsed.y;
+              if (v == null) return '';
+              return `${item.dataset.label}: ${v.toLocaleString(undefined, {maximumFractionDigits: 1})}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          type: 'category',
+          ticks: {
+            maxTicksLimit: 8,
+            maxRotation: 0,
+            callback: function(val, i) {
+              const label = this.getLabelForValue(val);
+              // Show YYYY-MM format
+              return label ? label.substring(0, 7) : '';
+            },
+            font: { family: "'Courier New', monospace", size: 10 }
+          },
+          title: { display: true, text: 'Date', font: { family: "'Courier New', monospace", size: 11 } },
+          grid: { display: false }
+        },
+        y: {
+          position: 'left',
+          min: 0,
+          max: turbMax,
+          title: { display: true, text: 'Turbulence Score', font: { family: "'Courier New', monospace", size: 11 } },
+          ticks: { font: { family: "'Courier New', monospace", size: 10 } },
+          grid: { color: '#eee' }
+        },
+        y1: {
+          position: 'right',
+          min: hasSpx ? spxMin : 0,
+          max: hasSpx ? spxMax : 100,
+          display: hasSpx,
+          title: { display: true, text: 'SPX Level', font: { family: "'Courier New', monospace", size: 11 } },
+          ticks: { font: { family: "'Courier New', monospace", size: 10 } },
+          grid: { display: false }
+        }
+      }
+    }
+  });
+}
+
+// ========== TURBULENCE HISTORY CHART ==========
+function renderTurbulenceHistory() {
+  const canvas = document.getElementById('turbulence-chart');
+  const ctx = canvas.getContext('2d');
+
+  if (!turbulenceData || turbulenceData.length === 0) return;
+
+  // Last 3 years
+  const threeYearsAgo = new Date();
+  threeYearsAgo.setFullYear(threeYearsAgo.getFullYear() - 3);
+  const filtered = turbulenceData.filter(d => new Date(d.date) >= threeYearsAgo);
+
+  const labels = filtered.map(d => d.date);
+  const rolling = filtered.map(d => d.rolling_turbulence);
+  const ewma = filtered.map(d => d.ewma_turbulence);
+
+  // Event annotations
+  const eventAnnotations = {};
+  (eventsData || []).forEach((ev, idx) => {
+    const evIdx = labels.indexOf(ev.date);
+    if (evIdx >= 0) {
+      eventAnnotations['ev' + idx] = {
+        type: 'line',
+        xMin: evIdx, xMax: evIdx,
+        borderColor: 'rgba(0,0,0,0.25)',
+        borderWidth: 1,
+        borderDash: [3, 3],
+        label: {
+          display: true,
+          content: ev.label,
+          position: 'start',
+          font: { size: 8, family: "'Courier New', monospace" },
+          backgroundColor: 'rgba(255,255,255,0.8)',
+          color: '#333'
+        }
+      };
+    }
+  });
+
+  const maxVal = Math.max(...rolling.filter(v => v != null), ...ewma.filter(v => v != null), 100);
+  const yMax = Math.ceil(maxVal / 100) * 100;
+
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Rolling (252-day)',
+          data: rolling,
+          borderColor: '#111111',
+          borderWidth: 1.2,
+          pointRadius: 0,
+          fill: false,
+        },
+        {
+          label: 'EWMA (halflife=60)',
+          data: ewma,
+          borderColor: '#1a5276',
+          borderWidth: 1.2,
+          pointRadius: 0,
+          fill: false,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top',
+          labels: { font: { family: "'Courier New', monospace", size: 10 }, boxWidth: 20, boxHeight: 2 }
+        },
+        annotation: { annotations: eventAnnotations },
+        tooltip: {
+          callbacks: {
+            label: (item) => `${item.dataset.label}: ${item.parsed.y != null ? item.parsed.y.toFixed(1) : 'N/A'}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          type: 'category',
+          ticks: {
+            maxTicksLimit: 8,
+            maxRotation: 0,
+            callback: function(val, i) {
+              const label = this.getLabelForValue(val);
+              return label ? label.substring(0, 7) : '';
+            },
+            font: { family: "'Courier New', monospace", size: 10 }
+          },
+          grid: { display: false }
+        },
+        y: {
+          min: 0,
+          max: yMax,
+          title: { display: true, text: 'Turbulence Score', font: { family: "'Courier New', monospace", size: 11 } },
+          ticks: { font: { family: "'Courier New', monospace", size: 10 } },
+          grid: { color: '#eee' }
+        }
+      }
+    }
+  });
+}
+
+// ========== START ==========
+window.addEventListener('DOMContentLoaded', init);
+</script>
+
+</body>
+</html>
