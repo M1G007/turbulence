@@ -119,7 +119,8 @@ def fetch_prices() -> pd.DataFrame:
     end = datetime.today()
     start = end - timedelta(days=LOOKBACK_YEARS * 365 + 60)
     start_str = start.strftime("%Y-%m-%d")
-    end_str = end.strftime("%Y-%m-%d")
+    # yfinance treats `end` as exclusive; use tomorrow so today's close is included.
+    end_str = (end + timedelta(days=1)).strftime("%Y-%m-%d")
 
     all_frames: List[pd.DataFrame] = []
     batches = [ALL_TICKERS[i:i + BATCH_SIZE] for i in range(0, len(ALL_TICKERS), BATCH_SIZE)]
@@ -173,6 +174,13 @@ def fetch_prices() -> pd.DataFrame:
     # Keep only tickers that have at least 30% of trading days
     min_obs = int(len(prices) * 0.30)
     prices = prices.dropna(axis=1, thresh=min_obs)
+
+    # End the series on the latest US trading day (SPY has a close). Without this,
+    # weekend/holiday or partial-UTC-day rows with only crypto prices can become
+    # the "latest" reading.
+    if "SPY" in prices.columns and prices["SPY"].notna().any():
+        last_trading_day = prices["SPY"].last_valid_index()
+        prices = prices.loc[:last_trading_day]
 
     print(f"[Fetch] Retained {prices.shape[1]} tickers with sufficient history.", flush=True)
     return prices
@@ -491,7 +499,7 @@ def run_pipeline():
     # Try to get ^GSPC for true SPX level; fall back to SPY * 10
     try:
         spx_raw = yf.download("^GSPC", start=(datetime.today() - timedelta(days=LOOKBACK_YEARS * 365 + 60)).strftime("%Y-%m-%d"),
-                              end=datetime.today().strftime("%Y-%m-%d"), auto_adjust=True, progress=False, timeout=30)
+                              end=(datetime.today() + timedelta(days=1)).strftime("%Y-%m-%d"), auto_adjust=True, progress=False, timeout=30)
         if not spx_raw.empty:
             if isinstance(spx_raw.columns, pd.MultiIndex):
                 spx_price = spx_raw["Close"]["^GSPC"] if ("Close" in spx_raw.columns.get_level_values(0)) else spx_raw.iloc[:, 0]
