@@ -47,8 +47,9 @@ jobs:
       - name: Install dependencies
         if: steps.src.outputs.ready == 'true'
         run: |
-          pip install -q fastapi uvicorn yfinance pandas numpy scipy
-          for r in src/turbulence-app/requirements*.txt; do [ -f "$r" ] && pip install -q -r "$r"; done; true
+          # pandas 3 changed pct_change() fill behaviour and breaks the model; pin to 2.x
+          pip install -q fastapi uvicorn yfinance "pandas==2.3.3" "numpy==2.2.6" scipy
+          true
 
       # server.py / build-static.py were written for /home/user/workspace/...,
       # so recreate that layout.
