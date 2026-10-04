@@ -100,7 +100,7 @@ jobs:
             python3 scripts/embed.py "$S/index.html" "$S/data"
           fi
           grep -q "const EMBEDDED_CURRENT" "$S/index.html"
-          python3 scripts/compare.py /tmp/live-index.html "$S/data/current.json" | tee /tmp/compare.md
+          python3 scripts/compare.py /tmp/live-index.html "$S/data" | tee /tmp/compare.md
           echo "## Live site vs this run" >> "$GITHUB_STEP_SUMMARY"; cat /tmp/compare.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Report shadow-mode result
