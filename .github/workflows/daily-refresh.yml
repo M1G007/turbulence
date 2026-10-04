@@ -8,7 +8,7 @@ name: Daily turbulence refresh
 
 on:
   schedule:
-    - cron: "45 23 * * 1-5"   # 4:45 PM Arizona, Mon-Fri
+    - cron: "10 23 * * 1-5"   # 4:10 PM Arizona, Mon-Fri
   push:
     branches: [main]
     paths: ["src/**", ".github/workflows/daily-refresh.yml"]
